@@ -85,6 +85,18 @@ def test_list_files_catches_general_failure():
     assert "General error" in str(exc_info.value)
 
 
+def test_list_files_filters_by_extension(tmp_path, monkeypatch):
+    (tmp_path / "plan.md").write_text("x")
+    (tmp_path / "notes.txt").write_text("y")
+    (tmp_path / "todo.txt").write_text("z")
+    (tmp_path / "data.csv").write_text("w")
+    monkeypatch.setattr(common, "rootdir", tmp_path)
+    assert asyncio.run(list_files("", "txt")) == ["notes.txt", "todo.txt"]
+    assert asyncio.run(list_files("", ".md")) == ["plan.md"]
+    assert asyncio.run(list_files("", "json")) == []
+    assert asyncio.run(list_files("")) == ["data.csv", "notes.txt", "plan.md", "todo.txt"]
+
+
 def test_read_file_returns_contents(tmp_path, monkeypatch):
     (tmp_path / "nested").mkdir()
     (tmp_path / "nested" / "note.md").write_text("hello world")
