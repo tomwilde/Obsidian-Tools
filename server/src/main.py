@@ -6,6 +6,7 @@ from mcp.server import MCPServer
 
 from config import determine_root_dir
 
+
 rootdir = determine_root_dir()
 
 mcp = MCPServer("obsidian")
