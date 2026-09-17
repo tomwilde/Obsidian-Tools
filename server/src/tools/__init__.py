@@ -1,3 +1,3 @@
-from tools import files, folders
+from tools import files, folders, rag
 
-__all__ = ["files", "folders"]
+__all__ = ["files", "folders", "rag"]

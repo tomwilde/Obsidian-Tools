@@ -16,4 +16,5 @@ A MCP server to expose an Obsidian vault - a folder tree of `md` files.
     - Mark a folder for indexing
     - Query folder indexing status
     - Query under a folder using RAG
+    - Clear all/some indexes
 

@@ -7,6 +7,20 @@ import config
 from tools import common
 from tools.files import _list_files, _read_file, list_files, read_file
 from tools.folders import _list_folders, list_folders
+from tools.rag import (
+    _rag_clear_all_index_folders,
+    _rag_clear_index_folder,
+    _rag_folder_status,
+    _rag_index_folder,
+    _rag_list_index_folders,
+    _rag_query,
+    rag_clear_all_index_folders,
+    rag_clear_index_folder,
+    rag_folder_status,
+    rag_index_folder,
+    rag_list_index_folders,
+    rag_query,
+)
 
 
 def test_determine_root_dir_reads_config(tmp_path):
@@ -131,3 +145,99 @@ def test_read_file_catches_general_failure():
     with pytest.raises(ToolError) as exc_info:
         _read_file(None, "")
     assert "General error" in str(exc_info.value)
+
+
+def test_rag_folder_status_returns_not_indexed(tmp_path, monkeypatch):
+    (tmp_path / "nested").mkdir()
+    monkeypatch.setattr(common, "rootdir", tmp_path)
+    assert asyncio.run(rag_folder_status("nested")) == "NotIndexed"
+
+
+@pytest.mark.parametrize("path", [".", ".."])
+def test_rag_folder_status_forbids_dot_paths(path, tmp_path, monkeypatch):
+    monkeypatch.setattr(common, "rootdir", tmp_path)
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(rag_folder_status(path))
+    assert "403" in str(exc_info.value)
+
+
+def test_rag_folder_status_missing_folder_raises_404(tmp_path, monkeypatch):
+    monkeypatch.setattr(common, "rootdir", tmp_path)
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(rag_folder_status("does/not/exist"))
+    assert "404" in str(exc_info.value)
+
+
+def test_rag_folder_status_catches_general_failure():
+    with pytest.raises(ToolError) as exc_info:
+        _rag_folder_status(None, "")
+    assert "General error" in str(exc_info.value)
+
+
+def test_rag_index_folder_returns_200(tmp_path, monkeypatch):
+    (tmp_path / "nested").mkdir()
+    monkeypatch.setattr(common, "rootdir", tmp_path)
+    assert asyncio.run(rag_index_folder("nested")) == 200
+
+
+@pytest.mark.parametrize("path", [".", ".."])
+def test_rag_index_folder_forbids_dot_paths(path, tmp_path, monkeypatch):
+    monkeypatch.setattr(common, "rootdir", tmp_path)
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(rag_index_folder(path))
+    assert "403" in str(exc_info.value)
+
+
+def test_rag_index_folder_missing_folder_raises_404(tmp_path, monkeypatch):
+    monkeypatch.setattr(common, "rootdir", tmp_path)
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(rag_index_folder("does/not/exist"))
+    assert "404" in str(exc_info.value)
+
+
+def test_rag_index_folder_catches_general_failure():
+    with pytest.raises(ToolError) as exc_info:
+        _rag_index_folder(None, "")
+    assert "General error" in str(exc_info.value)
+
+
+def test_rag_list_index_folders_returns_empty_list():
+    assert asyncio.run(rag_list_index_folders()) == []
+    assert _rag_list_index_folders() == []
+
+
+def test_rag_clear_index_folder_returns_200(tmp_path, monkeypatch):
+    (tmp_path / "nested").mkdir()
+    monkeypatch.setattr(common, "rootdir", tmp_path)
+    assert asyncio.run(rag_clear_index_folder("nested")) == 200
+
+
+@pytest.mark.parametrize("path", [".", ".."])
+def test_rag_clear_index_folder_forbids_dot_paths(path, tmp_path, monkeypatch):
+    monkeypatch.setattr(common, "rootdir", tmp_path)
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(rag_clear_index_folder(path))
+    assert "403" in str(exc_info.value)
+
+
+def test_rag_clear_index_folder_missing_folder_raises_404(tmp_path, monkeypatch):
+    monkeypatch.setattr(common, "rootdir", tmp_path)
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(rag_clear_index_folder("does/not/exist"))
+    assert "404" in str(exc_info.value)
+
+
+def test_rag_clear_index_folder_catches_general_failure():
+    with pytest.raises(ToolError) as exc_info:
+        _rag_clear_index_folder(None, "")
+    assert "General error" in str(exc_info.value)
+
+
+def test_rag_clear_all_index_folders_returns_200():
+    assert asyncio.run(rag_clear_all_index_folders()) == 200
+    assert _rag_clear_all_index_folders() == 200
+
+
+def test_rag_query_returns_empty_list():
+    assert asyncio.run(rag_query("what is this vault about?")) == []
+    assert _rag_query("anything") == []
