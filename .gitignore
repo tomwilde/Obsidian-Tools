@@ -1,0 +1,50 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.exec
+*.so
+
+# C extensions
+*.so
+*.dynlib
+*.dll
+
+# Distribution / build
+dist/
+build/
+*.egg-info/
+*.egg
+MANIFEST/
+
+# Environments
+.venv/
+venv/
+env/
+ENV/
+bin/
+include/
+lib/
+share/
+.env
+.direnv/
+
+# Unit test / coverage reports
+.tox/
+.cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+*.cover
+hmr_cache/
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
