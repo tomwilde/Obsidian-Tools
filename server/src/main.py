@@ -1,8 +1,20 @@
+import os
+import configparser
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from mcp.server import MCPServer
+
+config = configparser.ConfigParser()
+config.read('config.ini')
+
+rootdir = config['Obsidian']['rootdir']
+
+if os.path.exists(rootdir) and os.path.isdir(rootdir):
+    print(f"Serving: {rootdir}")
+else:
+    raise Exception(f"The rootdir: {rootdir} could not be found or is not a directory.")
 
 mcp = MCPServer("obsidian")
 
