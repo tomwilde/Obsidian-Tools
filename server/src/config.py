@@ -1,15 +1,15 @@
-import os
 import configparser
+from pathlib import Path
 
-config = configparser.ConfigParser()
-config.read('config.ini')
+CONFIG_FILE = Path(__file__).resolve().parents[1] / "config.ini"
 
 
-def determine_root_dir():
-    rootdir = config['Obsidian']['rootdir']
+def load_config(config_file: Path = CONFIG_FILE) -> configparser.ConfigParser:
+    parser = configparser.ConfigParser()
+    if not parser.read(config_file):
+        raise FileNotFoundError(f"Config file not found: {config_file}")
+    return parser
 
-    if os.path.exists(rootdir) and os.path.isdir(rootdir):
-        print(f"Serving: {rootdir}")
-        return rootdir
-    else:
-        raise Exception(f"The rootdir: {rootdir} could not be found or is not a directory.")
+
+def determine_root_dir(config_file: Path = CONFIG_FILE) -> Path:
+    return Path(load_config(config_file)["Obsidian"]["RootDir"])
