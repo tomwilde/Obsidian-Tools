@@ -17,7 +17,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Footer, Header, Input, Label, ListItem, ListView, Markdown, Static
 
-from chat import MAX_TOOL_ROUNDS, SYSTEM_PROMPT, parse_arguments, to_openai_tools
+from chat import MAX_TOOL_ROUNDS, SYSTEM_PROMPT, build_default_arguments, parse_arguments, to_openai_tools
 from mcp_client import McpClient, ToolInfo
 from ollama import OllamaClient
 
@@ -172,7 +172,9 @@ class ObsidianTui(App):
         schema = json.dumps(tool["input_schema"], indent=2)
         desc = f"**{tool['name']}**\n{tool['description'] or '(no description)'}\n\n```json\n{schema}\n```"
         self.query_one("#tool-desc", Static).update(desc)
-        self.query_one("#args-input", Input).value = "{}"
+        self.query_one("#args-input", Input).value = json.dumps(
+            build_default_arguments(tool.get("input_schema")), indent=2
+        )
         self.query_one("#tool-result", Static).update("Select arguments and press Enter.")
 
     @on(Button.Pressed, "#call-btn")

@@ -46,3 +46,42 @@ def parse_arguments(raw: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("Arguments must be a JSON object")
     return value
+
+def build_default_arguments(input_schema: dict[str, Any] | None) -> dict[str, Any]:
+    """Build a sensible default argument object from an MCP tool input schema.
+
+    Every property named in the schema is given a JSON-typed placeholder
+    (string -> "", boolean -> False, integer/number -> 0, array -> [], object ->
+    {}) unless the schema declares an explicit default. Required-vs-optional is
+    ignored here: tools should accept the full set so calls round trip even when
+    the model omits arguments.
+    """
+    schema = input_schema or {}
+    if not isinstance(schema, dict):
+        return {}
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        return {}
+    defaults: dict[str, Any] = {}
+    for name, prop in properties.items():
+        if not isinstance(prop, dict):
+            continue
+        if "default" in prop:
+            defaults[name] = prop["default"]
+            continue
+        ptype = prop.get("type")
+        if ptype == "string":
+            defaults[name] = ""
+        elif ptype in ("integer", "number"):
+            defaults[name] = 0
+        elif ptype == "boolean":
+            defaults[name] = False
+        elif ptype == "array":
+            defaults[name] = []
+        elif ptype == "object":
+            defaults[name] = {}
+        elif ptype is None and "$ref" in prop:
+            defaults[name] = {}
+    return defaults
+
+
