@@ -1,8 +1,19 @@
 [project]
 name = "obsidianmcptui"
 version = "0.1.0"
-description = "Add your description here"
+description = "Textual TUI for the Obsidian MCP server backed by local Ollama"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "mcp>=2.2.0",
+    "openai>=1.0",
+    "textual>=3.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
