@@ -5,7 +5,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 import config
 from tools import common
-from tools.files import _list_files, list_files
+from tools.files import _list_files, _read_file, list_files, read_file
 from tools.folders import _list_folders, list_folders
 
 
@@ -82,4 +82,40 @@ def test_list_files_missing_dir_raises(tmp_path, monkeypatch):
 def test_list_files_catches_general_failure():
     with pytest.raises(ToolError) as exc_info:
         _list_files(None, "")
+    assert "General error" in str(exc_info.value)
+
+
+def test_read_file_returns_contents(tmp_path, monkeypatch):
+    (tmp_path / "nested").mkdir()
+    (tmp_path / "nested" / "note.md").write_text("hello world")
+    monkeypatch.setattr(common, "rootdir", tmp_path)
+    assert asyncio.run(read_file("nested/note.md")) == "hello world"
+
+
+@pytest.mark.parametrize("path", [".", ".."])
+def test_read_file_forbids_dot_paths(path, tmp_path, monkeypatch):
+    monkeypatch.setattr(common, "rootdir", tmp_path)
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(read_file(path))
+    assert "403" in str(exc_info.value)
+
+
+def test_read_file_missing_file_raises_404(tmp_path, monkeypatch):
+    monkeypatch.setattr(common, "rootdir", tmp_path)
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(read_file("does/not/exist.md"))
+    assert "404" in str(exc_info.value)
+
+
+def test_read_file_directory_raises_404(tmp_path, monkeypatch):
+    (tmp_path / "nested").mkdir()
+    monkeypatch.setattr(common, "rootdir", tmp_path)
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(read_file("nested"))
+    assert "404" in str(exc_info.value)
+
+
+def test_read_file_catches_general_failure():
+    with pytest.raises(ToolError) as exc_info:
+        _read_file(None, "")
     assert "General error" in str(exc_info.value)
