@@ -9,6 +9,7 @@ from tools import common
 
 class RagMatch(TypedDict):
     file: str
+    chunk: int
     text: str
     score: float
 

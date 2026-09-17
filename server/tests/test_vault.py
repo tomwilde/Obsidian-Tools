@@ -179,3 +179,78 @@ def test_rag_flush_index_catches_general_failure(monkeypatch):
     with pytest.raises(ToolError) as exc_info:
         asyncio.run(rag_flush_index())
     assert "General error" in str(exc_info.value)
+
+
+class OrthogonalEmbedding:
+    def __call__(self, texts):
+        return [
+            [1.0 if i == offset % 8 else 0.0 for i in range(8)]
+            for offset in range(len(texts))
+        ]
+
+
+def test_split_sentences_splits_on_punctuation_and_lines(tmp_path):
+    imp = indexer.Indexer(tmp_path)
+    text = "First sentence. Second one!\n\n# Heading\nA line without punctuation\nThird?"
+    assert imp._split_sentences(text) == [
+        "First sentence.",
+        "Second one!",
+        "# Heading",
+        "A line without punctuation",
+        "Third?",
+    ]
+
+
+def test_split_sentences_hard_splits_very_long_segments(tmp_path):
+    imp = indexer.Indexer(tmp_path)
+    long = "word " * (indexer.MAX_SENTENCE_CHARS + 100)
+    parts = imp._split_sentences(long)
+    assert len(parts) > 1
+    assert all(len(part) <= indexer.MAX_CHUNK_CHARS for part in parts)
+    assert "".join(parts).replace(" ", "") == long.strip().replace(" ", "")
+
+
+def test_group_chunks_splits_at_low_similarity(tmp_path):
+    imp = indexer.Indexer(tmp_path)
+    sentences = ["The cat.", "The dog.", "Python code.", "Rust code."]
+    similarities = [0.9, 0.1, 0.8]
+    chunks = imp._group_chunks(sentences, similarities, threshold=0.5, min_chunk_chars=0)
+    assert chunks == ["The cat. The dog.", "Python code. Rust code."]
+
+
+def test_group_chunks_respects_max_size(tmp_path):
+    imp = indexer.Indexer(tmp_path)
+    sentences = ["aaa", "bbb", "ccc", "ddd"]
+    chunks = imp._group_chunks(
+        sentences, [1.0, 1.0, 1.0], threshold=0.5, min_chunk_chars=0, max_chunk_chars=7
+    )
+    assert chunks == ["aaa bbb", "ccc ddd"]
+
+
+def test_adjacent_similarities_of_orthogonal_vectors(tmp_path):
+    imp = indexer.Indexer(tmp_path)
+    similarities = imp._adjacent_similarities(
+        [[1.0, 0.0], [0.0, 1.0], [1.0, 0.0]]
+    )
+    assert similarities.shape == (2,)
+    assert abs(float(similarities[0])) < 1e-6
+    assert abs(float(similarities[1])) < 1e-6
+
+
+def test_chunks_produces_semantic_chunks(tmp_path):
+    imp = indexer.Indexer(tmp_path, embedding_function=OrthogonalEmbedding())
+    text = "The quick brown fox. Jumps over the lazy dog."
+    chunks = imp._chunks(text)
+    assert len(chunks) == 1
+    assert chunks[0] == "The quick brown fox. Jumps over the lazy dog."
+
+
+def test_chunks_falls_back_to_structural_when_embedding_fails(tmp_path):
+    def broken_embedding(texts):
+        raise RuntimeError("no model")
+
+    imp = indexer.Indexer(tmp_path, embedding_function=broken_embedding)
+    text = "# Notes\n\nFirst paragraph here.\n\nSecond paragraph continues.\n\n## More\nDetails."
+    chunks = imp._chunks(text)
+    assert len(chunks) > 1
+    assert chunks[0].startswith("# Notes")
