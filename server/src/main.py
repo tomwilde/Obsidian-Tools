@@ -1,6 +1,22 @@
-from fastapi import FastAPI
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
-app = FastAPI(title="Obsidian MCP Server")
+from fastapi import FastAPI
+from mcp.server import MCPServer
+
+mcp = MCPServer("obsidian")
+
+@mcp.tool()
+def list_notes() -> str:
+    """List all notes in the vault."""
+    return "[placeholder]"
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    async with mcp.session_manager.run():
+        yield
+
+app = FastAPI(title="Obsidian MCP Server", lifespan=lifespan)
 
 @app.get("/")
 async def root():
@@ -9,3 +25,5 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+app.mount("/", mcp.streamable_http_app())
