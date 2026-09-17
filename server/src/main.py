@@ -31,6 +31,24 @@ def _list_folders(root: Path, relative: str) -> list[str]:
     except Exception as exc:
         raise ToolError(f"Failed to list folders for {relative!r}: {exc}") from exc
 
+@mcp.tool()
+async def list_files(path: str) -> list[str]:
+    """List the files at the given path relative to the vault root."""
+    if path in (".", ".."):
+        raise ToolError("403 Forbidden")
+    return _list_files(rootdir, path)
+
+def _list_files(root: Path, relative: str) -> list[str]:
+    try:
+        target = (root / relative).resolve()
+        if not target.is_dir():
+            raise ToolError(f"Not a directory: {relative}")
+        return sorted(item.name for item in target.iterdir() if item.is_file())
+    except ToolError:
+        raise
+    except Exception as exc:
+        raise ToolError(f"Failed to list files for {relative!r}: {exc}") from exc
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     async with mcp.session_manager.run():

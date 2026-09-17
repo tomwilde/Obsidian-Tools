@@ -49,3 +49,36 @@ def test_list_folders_catches_general_failure():
     with pytest.raises(ToolError) as exc_info:
         main._list_folders(None, "")
     assert "Failed to list folders" in str(exc_info.value)
+
+
+def test_list_files_lists_files(tmp_path, monkeypatch):
+    (tmp_path / "alpha").mkdir()
+    (tmp_path / "nested").mkdir()
+    (tmp_path / "nested" / "inner").mkdir()
+    (tmp_path / "plan.md").write_text("x")
+    (tmp_path / "note.md").write_text("y")
+    (tmp_path / "nested" / "deep.md").write_text("z")
+    monkeypatch.setattr(main, "rootdir", tmp_path)
+    assert asyncio.run(main.list_files("")) == ["note.md", "plan.md"]
+    assert asyncio.run(main.list_files("nested")) == ["deep.md"]
+
+
+@pytest.mark.parametrize("path", [".", ".."])
+def test_list_files_forbids_dot_paths(path, tmp_path, monkeypatch):
+    monkeypatch.setattr(main, "rootdir", tmp_path)
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(main.list_files(path))
+    assert "403" in str(exc_info.value)
+
+
+def test_list_files_missing_dir_raises(tmp_path, monkeypatch):
+    monkeypatch.setattr(main, "rootdir", tmp_path)
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(main.list_files("does/not/exist"))
+    assert "Not a directory" in str(exc_info.value)
+
+
+def test_list_files_catches_general_failure():
+    with pytest.raises(ToolError) as exc_info:
+        main._list_files(None, "")
+    assert "Failed to list files" in str(exc_info.value)
