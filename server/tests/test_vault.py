@@ -48,7 +48,7 @@ def test_list_folders_missing_dir_raises(tmp_path, monkeypatch):
 def test_list_folders_catches_general_failure():
     with pytest.raises(ToolError) as exc_info:
         main._list_folders(None, "")
-    assert "Failed to list folders" in str(exc_info.value)
+    assert "General error" in str(exc_info.value)
 
 
 def test_list_files_lists_files(tmp_path, monkeypatch):
@@ -81,4 +81,4 @@ def test_list_files_missing_dir_raises(tmp_path, monkeypatch):
 def test_list_files_catches_general_failure():
     with pytest.raises(ToolError) as exc_info:
         main._list_files(None, "")
-    assert "Failed to list files" in str(exc_info.value)
+    assert "General error" in str(exc_info.value)
