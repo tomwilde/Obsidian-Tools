@@ -8,9 +8,9 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "obsidianmcp",
-    "obsidianmcp-workspace",
-    "obsidianmcptui",
+    "tw-obsidian-tools",
+    "tw-obsidian-tools-workspace",
+    "tw-obsidian-toolstui",
 ]
 
 [[package]]
@@ -1397,7 +1397,7 @@ wheels = [
 ]
 
 [[package]]
-name = "obsidianmcp"
+name = "tw-obsidian-tools"
 version = "0.1.0"
 source = { virtual = "server" }
 dependencies = [
@@ -1424,7 +1424,7 @@ requires-dist = [
 dev = [{ name = "pytest" }]
 
 [[package]]
-name = "obsidianmcp-workspace"
+name = "tw-obsidian-tools-workspace"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
@@ -1435,7 +1435,7 @@ dependencies = [
 requires-dist = [{ name = "pytest", specifier = ">=9.1.1" }]
 
 [[package]]
-name = "obsidianmcptui"
+name = "tw-obsidian-toolstui"
 version = "0.1.0"
 source = { virtual = "tui" }
 dependencies = [

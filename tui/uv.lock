@@ -433,7 +433,7 @@ wheels = [
 ]
 
 [[package]]
-name = "obsidianmcptui"
+name = "tw-obsidian-toolstui"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

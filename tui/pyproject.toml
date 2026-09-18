@@ -1,5 +1,5 @@
 [project]
-name = "obsidianmcptui"
+name = "tw-obsidian-toolstui"
 version = "0.1.0"
 description = "Textual TUI for the Obsidian MCP server backed by local Ollama"
 readme = "README.md"

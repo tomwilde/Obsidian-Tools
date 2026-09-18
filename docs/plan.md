@@ -1,4 +1,4 @@
-# ObsidianMCP
+# tw-obsidian-tools
 
 ## Overview
 

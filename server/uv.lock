@@ -1287,7 +1287,7 @@ wheels = [
 ]
 
 [[package]]
-name = "obsidianmcp"
+name = "tw-obsidian-tools"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

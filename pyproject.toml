@@ -2,9 +2,9 @@
 members = ["server", "tui"]
 
 [project]
-name = "obsidianmcp-workspace"
+name = "tw-obsidian-tools-workspace"
 version = "0.1.0"
-description = "Shared uv workspace for the ObsidianMCP server and Textual TUI"
+description = "Shared uv workspace for the tw-obsidian-tools server and Textual TUI"
 requires-python = ">=3.13"
 dependencies = [
     "pytest>=9.1.1",
