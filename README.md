@@ -20,12 +20,25 @@ all running locally, no cloud APIs.
 
 ---
 
+## Layout & environment
+
+Single **uv workspace** (`pyproject.toml` at the repo root with members
+`["server", "tui"]`): `server/` and `tui/` share **one** venv (root `.venv`),
+**one** `uv.lock`, and one interpreter. `uv run` from anywhere in the tree
+resolves to the same shared environment — no per-project venvs.
+
 ## Prerequisites
 
 - Python 3.13+ with [`uv`](https://docs.astral.sh/uv/)
 - **Ollama** running locally on `http://localhost:11434` with a tools-capable
   model pulled, e.g. `gemma4:12b-it-qat`
 - (optional) the RAG features use ChromaDB, installed automatically
+
+Environment is set up once from the repo root:
+
+```bash
+uv sync                       # creates .venv + uv.lock (shared)
+```
 
 ## Configure the vault
 
@@ -86,7 +99,10 @@ uv run python src/main.py \
 
 ## Tests
 
+Both suites run from the **same shared venv**. From the repo root:
+
 ```bash
-cd server && uv run pytest     # server tests
-cd tui    && uv run pytest     # TUI tests (headless + mocked network)
+uv run pytest server -q     # server tests (31)
+uv run pytest tui    -q     # TUI tests, headless + mocked network (9)
+uv run pytest server tui -q # both
 ```

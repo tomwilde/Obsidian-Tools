@@ -1,0 +1,12 @@
+[tool.uv.workspace]
+members = ["server", "tui"]
+
+[project]
+name = "obsidianmcp-workspace"
+version = "0.1.0"
+description = "Shared uv workspace for the ObsidianMCP server and Textual TUI"
+requires-python = ">=3.13"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["server/src", "tui/src"]
