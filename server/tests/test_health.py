@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from main import app
+from server_main import app
 
 
 def test_health_check():

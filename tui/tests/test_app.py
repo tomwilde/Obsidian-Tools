@@ -1,6 +1,6 @@
 import asyncio
 
-from main import ObsidianTui
+from tui_main import ObsidianTui
 
 
 def test_app_mounts_headless():
