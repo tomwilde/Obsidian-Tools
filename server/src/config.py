@@ -1,9 +1,12 @@
 import configparser
 import os
+import re
 from pathlib import Path
+from pathlib import PurePosixPath
 
 CONFIG_FILE = Path(__file__).resolve().parent / "config.ini"
 VAULT_DIR_ENV = "VAULT_DIR"
+EXCLUDED_DIRS_OPTION = "ExcludedDirs"
 
 
 def load_config(config_file: Path = CONFIG_FILE) -> configparser.ConfigParser:
@@ -18,3 +21,37 @@ def determine_root_dir(config_file: Path = CONFIG_FILE) -> Path:
     if env_root_dir:
         return Path(env_root_dir).expanduser()
     return Path(load_config(config_file)["Obsidian"]["RootDir"])
+
+
+def determine_excluded_dirs(config_file: Path = CONFIG_FILE) -> tuple[Path, ...]:
+    parser = load_config(config_file)
+    raw = parser["Obsidian"].get(EXCLUDED_DIRS_OPTION, "")
+    return _parse_excluded_dirs(raw)
+
+
+def _parse_excluded_dirs(raw: str) -> tuple[Path, ...]:
+    paths: list[Path] = []
+    seen: set[str] = set()
+    for token in re.split(r"[\n,]", raw):
+        entry = token.strip()
+        if not entry:
+            continue
+        normalized = _normalize_relative_dir(entry)
+        key = normalized.as_posix()
+        if key in seen:
+            continue
+        seen.add(key)
+        paths.append(normalized)
+    return tuple(paths)
+
+
+def _normalize_relative_dir(raw: str) -> Path:
+    value = raw.replace("\\", "/").strip()
+    posix = PurePosixPath(value)
+    if posix.is_absolute():
+        posix = PurePosixPath(*posix.parts[1:])
+    if not posix.parts:
+        raise ValueError(f"Invalid excluded directory: {raw}")
+    if any(part in ("", ".", "..") for part in posix.parts):
+        raise ValueError(f"Invalid excluded directory: {raw}")
+    return Path(posix.as_posix())

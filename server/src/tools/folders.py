@@ -17,4 +17,8 @@ def _list_folders(root: Path, relative: str) -> list[str]:
     target = common.resolve_vault_path(root, relative)
     if not target.is_dir():
         raise ToolError(f"Not a directory: {relative}")
-    return sorted(item.name for item in target.iterdir() if item.is_dir())
+    return sorted(
+        item.name
+        for item in target.iterdir()
+        if item.is_dir() and not common.is_excluded_path(root, item)
+    )

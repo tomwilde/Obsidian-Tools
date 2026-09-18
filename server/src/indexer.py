@@ -8,7 +8,7 @@ import chromadb
 import numpy as np
 from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 
-from config import determine_root_dir
+from config import determine_excluded_dirs, determine_root_dir
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +30,12 @@ class Indexer:
         rootdir: Path,
         index_dir: Path = INDEX_DIR,
         embedding_function: object | None = None,
+        excluded_dirs: tuple[Path, ...] | None = None,
     ) -> None:
         self.rootdir = rootdir
         self.index_dir = index_dir
         self.embedding_function = embedding_function
+        self.excluded_dirs = excluded_dirs if excluded_dirs is not None else determine_excluded_dirs()
         self._client: chromadb.ClientAPI | None = None
         self._ready = threading.Event()
 
@@ -61,6 +63,8 @@ class Indexer:
         for path in sorted(self.rootdir.rglob("*.md")):
             if not path.is_file():
                 continue
+            if self._is_excluded(path):
+                continue
             try:
                 text = path.read_text(encoding="utf-8")
             except OSError:
@@ -70,6 +74,13 @@ class Indexer:
                 relative = path.relative_to(self.rootdir).as_posix()
                 documents.append((relative, text, self._sha(text)))
         return documents
+
+    def _is_excluded(self, path: Path) -> bool:
+        relative = path.resolve().relative_to(self.rootdir.resolve())
+        for excluded in self.excluded_dirs:
+            if relative == excluded or excluded in relative.parents:
+                return True
+        return False
 
     def _indexed_chunks(
         self, collection: chromadb.Collection

@@ -54,6 +54,19 @@ before running, or use the flags/CLI below.
 
 If `VAULT_DIR` is set, it overrides `RootDir` from `config.ini`.
 
+To hide folders from both MCP tools and RAG indexing, set `ExcludedDirs` in
+`server/src/config.ini` (comma- or newline-separated, vault-relative paths):
+
+```ini
+[Obsidian]
+RootDir=/path/to/your/vault
+ExcludedDirs=.obsidian,Templates/private
+```
+
+Any folder listed in `ExcludedDirs` is treated as non-existent externally: it
+is not listed by tools, files under it cannot be read, and its markdown is not
+indexed for RAG queries.
+
 ---
 
 ## Run the MCP server

@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
@@ -28,7 +29,8 @@ class FakeIndex:
         self.built = True
 
 
-def test_determine_root_dir_reads_config(tmp_path):
+def test_determine_root_dir_reads_config(tmp_path, monkeypatch):
+    monkeypatch.delenv("VAULT_DIR", raising=False)
     ini = tmp_path / "config.ini"
     ini.write_text(f"[Obsidian]\nRootDir = {tmp_path}\n")
     assert config.determine_root_dir(ini) == tmp_path
@@ -45,6 +47,25 @@ def test_determine_root_dir_prefers_vault_dir_environment_variable(tmp_path, mon
     assert config.determine_root_dir(ini) == overridden
 
 
+def test_determine_excluded_dirs_reads_config(tmp_path):
+    ini = tmp_path / "config.ini"
+    ini.write_text("[Obsidian]\nRootDir = /tmp\nExcludedDirs = .obsidian, private/notes\n")
+    assert config.determine_excluded_dirs(ini) == (Path(".obsidian"), Path("private/notes"))
+
+
+def test_determine_excluded_dirs_supports_newline_values(tmp_path):
+    ini = tmp_path / "config.ini"
+    ini.write_text("[Obsidian]\nRootDir = /tmp\nExcludedDirs = one\n  two/sub\n")
+    assert config.determine_excluded_dirs(ini) == (Path("one"), Path("two/sub"))
+
+
+def test_determine_excluded_dirs_rejects_parent_traversal(tmp_path):
+    ini = tmp_path / "config.ini"
+    ini.write_text("[Obsidian]\nRootDir = /tmp\nExcludedDirs = ../secret\n")
+    with pytest.raises(ValueError):
+        config.determine_excluded_dirs(ini)
+
+
 def test_load_config_missing_file_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         config.load_config(tmp_path / "missing.ini")
@@ -57,6 +78,7 @@ def test_list_folders_lists_directories(tmp_path, monkeypatch):
     (tmp_path / "file.md").write_text("x")
     (tmp_path / "nested" / "inner").mkdir()
     monkeypatch.setattr(common, "rootdir", tmp_path)
+    monkeypatch.setattr(common, "excluded_dirs", ())
     assert asyncio.run(list_folders("")) == ["alpha", "beta", "nested"]
     assert asyncio.run(list_folders("/")) == ["alpha", "beta", "nested"]
     assert asyncio.run(list_folders("nested")) == ["inner"]
@@ -66,6 +88,7 @@ def test_list_folders_lists_directories(tmp_path, monkeypatch):
 @pytest.mark.parametrize("path", [".", ".."])
 def test_list_folders_forbids_dot_paths(path, tmp_path, monkeypatch):
     monkeypatch.setattr(common, "rootdir", tmp_path)
+    monkeypatch.setattr(common, "excluded_dirs", ())
     with pytest.raises(ToolError) as exc_info:
         asyncio.run(list_folders(path))
     assert "403" in str(exc_info.value)
@@ -74,6 +97,7 @@ def test_list_folders_forbids_dot_paths(path, tmp_path, monkeypatch):
 @pytest.mark.parametrize("path", ["../", "../etc", "/../etc", "/../../"])
 def test_list_folders_forbids_parent_traversal(path, tmp_path, monkeypatch):
     monkeypatch.setattr(common, "rootdir", tmp_path)
+    monkeypatch.setattr(common, "excluded_dirs", ())
     with pytest.raises(ToolError) as exc_info:
         asyncio.run(list_folders(path))
     assert "403" in str(exc_info.value)
@@ -81,9 +105,22 @@ def test_list_folders_forbids_parent_traversal(path, tmp_path, monkeypatch):
 
 def test_list_folders_missing_dir_raises(tmp_path, monkeypatch):
     monkeypatch.setattr(common, "rootdir", tmp_path)
+    monkeypatch.setattr(common, "excluded_dirs", ())
     with pytest.raises(ToolError) as exc_info:
         asyncio.run(list_folders("does/not/exist"))
     assert "Not a directory" in str(exc_info.value)
+
+
+def test_list_folders_hides_excluded_directories(tmp_path, monkeypatch):
+    (tmp_path / "public").mkdir()
+    (tmp_path / "private").mkdir()
+    (tmp_path / "private" / "nested").mkdir()
+    monkeypatch.setattr(common, "rootdir", tmp_path)
+    monkeypatch.setattr(common, "excluded_dirs", (Path("private"),))
+    assert asyncio.run(list_folders("")) == ["public"]
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(list_folders("private"))
+    assert "404" in str(exc_info.value)
 
 
 def test_list_folders_catches_general_failure():
@@ -100,6 +137,7 @@ def test_list_files_lists_files(tmp_path, monkeypatch):
     (tmp_path / "note.md").write_text("y")
     (tmp_path / "nested" / "deep.md").write_text("z")
     monkeypatch.setattr(common, "rootdir", tmp_path)
+    monkeypatch.setattr(common, "excluded_dirs", ())
     assert asyncio.run(list_files("")) == ["note.md", "plan.md"]
     assert asyncio.run(list_files("/")) == ["note.md", "plan.md"]
     assert asyncio.run(list_files("nested")) == ["deep.md"]
@@ -109,6 +147,7 @@ def test_list_files_lists_files(tmp_path, monkeypatch):
 @pytest.mark.parametrize("path", [".", ".."])
 def test_list_files_forbids_dot_paths(path, tmp_path, monkeypatch):
     monkeypatch.setattr(common, "rootdir", tmp_path)
+    monkeypatch.setattr(common, "excluded_dirs", ())
     with pytest.raises(ToolError) as exc_info:
         asyncio.run(list_files(path))
     assert "403" in str(exc_info.value)
@@ -117,6 +156,7 @@ def test_list_files_forbids_dot_paths(path, tmp_path, monkeypatch):
 @pytest.mark.parametrize("path", ["../", "../etc", "/../etc", "/../../"])
 def test_list_files_forbids_parent_traversal(path, tmp_path, monkeypatch):
     monkeypatch.setattr(common, "rootdir", tmp_path)
+    monkeypatch.setattr(common, "excluded_dirs", ())
     with pytest.raises(ToolError) as exc_info:
         asyncio.run(list_files(path))
     assert "403" in str(exc_info.value)
@@ -124,6 +164,7 @@ def test_list_files_forbids_parent_traversal(path, tmp_path, monkeypatch):
 
 def test_list_files_missing_dir_raises(tmp_path, monkeypatch):
     monkeypatch.setattr(common, "rootdir", tmp_path)
+    monkeypatch.setattr(common, "excluded_dirs", ())
     with pytest.raises(ToolError) as exc_info:
         asyncio.run(list_files("does/not/exist"))
     assert "Not a directory" in str(exc_info.value)
@@ -141,6 +182,7 @@ def test_list_files_filters_by_extension(tmp_path, monkeypatch):
     (tmp_path / "todo.txt").write_text("z")
     (tmp_path / "data.csv").write_text("w")
     monkeypatch.setattr(common, "rootdir", tmp_path)
+    monkeypatch.setattr(common, "excluded_dirs", ())
     assert asyncio.run(list_files("", "txt")) == ["notes.txt", "todo.txt"]
     assert asyncio.run(list_files("", ".md")) == ["plan.md"]
     assert asyncio.run(list_files("", "json")) == []
@@ -151,6 +193,7 @@ def test_read_file_returns_contents(tmp_path, monkeypatch):
     (tmp_path / "nested").mkdir()
     (tmp_path / "nested" / "note.md").write_text("hello world")
     monkeypatch.setattr(common, "rootdir", tmp_path)
+    monkeypatch.setattr(common, "excluded_dirs", ())
     assert asyncio.run(read_file("nested/note.md")) == "hello world"
     assert asyncio.run(read_file("/nested/note.md")) == "hello world"
 
@@ -158,6 +201,7 @@ def test_read_file_returns_contents(tmp_path, monkeypatch):
 @pytest.mark.parametrize("path", [".", ".."])
 def test_read_file_forbids_dot_paths(path, tmp_path, monkeypatch):
     monkeypatch.setattr(common, "rootdir", tmp_path)
+    monkeypatch.setattr(common, "excluded_dirs", ())
     with pytest.raises(ToolError) as exc_info:
         asyncio.run(read_file(path))
     assert "403" in str(exc_info.value)
@@ -166,6 +210,7 @@ def test_read_file_forbids_dot_paths(path, tmp_path, monkeypatch):
 @pytest.mark.parametrize("path", ["../", "../etc/passwd", "/../etc/passwd", "/../../secret.md"])
 def test_read_file_forbids_parent_traversal(path, tmp_path, monkeypatch):
     monkeypatch.setattr(common, "rootdir", tmp_path)
+    monkeypatch.setattr(common, "excluded_dirs", ())
     with pytest.raises(ToolError) as exc_info:
         asyncio.run(read_file(path))
     assert "403" in str(exc_info.value)
@@ -173,6 +218,7 @@ def test_read_file_forbids_parent_traversal(path, tmp_path, monkeypatch):
 
 def test_read_file_missing_file_raises_404(tmp_path, monkeypatch):
     monkeypatch.setattr(common, "rootdir", tmp_path)
+    monkeypatch.setattr(common, "excluded_dirs", ())
     with pytest.raises(ToolError) as exc_info:
         asyncio.run(read_file("does/not/exist.md"))
     assert "404" in str(exc_info.value)
@@ -181,8 +227,19 @@ def test_read_file_missing_file_raises_404(tmp_path, monkeypatch):
 def test_read_file_directory_raises_404(tmp_path, monkeypatch):
     (tmp_path / "nested").mkdir()
     monkeypatch.setattr(common, "rootdir", tmp_path)
+    monkeypatch.setattr(common, "excluded_dirs", ())
     with pytest.raises(ToolError) as exc_info:
         asyncio.run(read_file("nested"))
+    assert "404" in str(exc_info.value)
+
+
+def test_read_file_hidden_directory_raises_404(tmp_path, monkeypatch):
+    (tmp_path / "private").mkdir()
+    (tmp_path / "private" / "note.md").write_text("secret")
+    monkeypatch.setattr(common, "rootdir", tmp_path)
+    monkeypatch.setattr(common, "excluded_dirs", (Path("private"),))
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(read_file("private/note.md"))
     assert "404" in str(exc_info.value)
 
 
@@ -294,3 +351,13 @@ def test_chunks_falls_back_to_structural_when_embedding_fails(tmp_path):
     chunks = imp._chunks(text)
     assert len(chunks) > 1
     assert chunks[0].startswith("# Notes")
+
+
+def test_documents_skip_excluded_directories(tmp_path):
+    (tmp_path / "public").mkdir()
+    (tmp_path / "public" / "keep.md").write_text("hello")
+    (tmp_path / "private").mkdir()
+    (tmp_path / "private" / "skip.md").write_text("secret")
+    imp = indexer.Indexer(tmp_path, excluded_dirs=(Path("private"),))
+    documents = imp._documents()
+    assert [doc_id for doc_id, _, _ in documents] == ["public/keep.md"]

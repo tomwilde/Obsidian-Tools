@@ -5,9 +5,10 @@ from typing import TypeVar
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from config import determine_root_dir
+from config import determine_excluded_dirs, determine_root_dir
 
 rootdir: Path = determine_root_dir()
+excluded_dirs: tuple[Path, ...] = determine_excluded_dirs()
 
 T = TypeVar("T")
 
@@ -30,7 +31,22 @@ def resolve_vault_path(root: Path, relative: str) -> Path:
     except ValueError:
         raise ToolError("403 Forbidden") from None
 
+    if is_excluded_path(canonical_root, target):
+        raise ToolError("404 Not Found")
+
     return target
+
+
+def is_excluded_path(root: Path, target: Path) -> bool:
+    canonical_root = root.resolve()
+    try:
+        relative = target.resolve().relative_to(canonical_root)
+    except ValueError:
+        return False
+    for excluded in excluded_dirs:
+        if relative == excluded or excluded in relative.parents:
+            return True
+    return False
 
 
 def normalize_vault_relative(relative: str) -> str:

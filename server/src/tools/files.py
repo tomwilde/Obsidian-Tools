@@ -17,7 +17,11 @@ def _list_files(root: Path, relative: str, extension: str | None = None) -> list
     target = common.resolve_vault_path(root, relative)
     if not target.is_dir():
         raise ToolError(f"Not a directory: {relative}")
-    files = sorted(item.name for item in target.iterdir() if item.is_file())
+    files = sorted(
+        item.name
+        for item in target.iterdir()
+        if item.is_file() and not common.is_excluded_path(root, item)
+    )
     if extension is None:
         return files
     suffix = f".{extension.lstrip('.').lower()}"
