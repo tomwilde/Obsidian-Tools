@@ -47,10 +47,12 @@ before running, or use the flags/CLI below.
 
 | Variable      | Server | TUI                      | Default                                |
 |---------------|--------|--------------------------|----------------------------------------|
-| `OBSIDIAN_DIR`| vault  | —                        | `D:\Dev\Projects\Roadmap\Data\Omni`    |
+| `VAULT_DIR`   | vault  | —                        | `RootDir` from `server/src/config.ini` |
 | `MCP_URL`     | —      | MCP server URL           | `http://localhost:8000/mcp`            |
 | `OLLAMA_URL`  | —      | Ollama OpenAI endpoint   | `http://localhost:11434/v1`            |
 | `OLLAMA_MODEL`| —      | model name               | `gemma4:12b-it-qat`                    |
+
+If `VAULT_DIR` is set, it overrides `RootDir` from `config.ini`.
 
 ---
 
@@ -84,6 +86,83 @@ uv run python src/main.py \
     --mcp-url http://localhost:8000/mcp \
     --ollama-url http://localhost:11434/v1 \
     --model gemma4:12b-it-qat
+```
+
+## Docker (single container: server + TUI harness)
+
+Build from the repo root:
+
+```bash
+docker build -t tw-obsidian-tools .
+```
+
+Run with your local vault folder mounted in, and host Ollama reachable from
+inside the container:
+
+```bash
+docker run --rm -it \
+    -p 8000:8000 \
+    --add-host=host.docker.internal:host-gateway \
+    -v "$(pwd)/Vault:/data/Vault" \
+    -e VAULT_DIR=/data/Vault \
+    -e OLLAMA_URL=http://host.docker.internal:11434/v1 \
+    -e OLLAMA_MODEL=gemma4:12b-it-qat \
+    tw-obsidian-tools
+```
+
+Notes:
+
+- This image runs both parts together: FastAPI MCP server + Textual TUI.
+- The TUI talks to the in-container MCP server (`http://127.0.0.1:8000/mcp`).
+- `--add-host=host.docker.internal:host-gateway` is required on Linux so the
+  container can reach Ollama running on the host.
+- For container-to-host access, Ollama should listen beyond loopback. A common
+  setup is:
+
+```bash
+OLLAMA_HOST=0.0.0.0:11434 ollama serve
+```
+
+### Docker Compose (recommended)
+
+For the best interactive TUI sizing, use `run`:
+
+```bash
+docker compose run --rm --build --service-ports app
+```
+
+Defaults used by compose:
+
+- local `./Vault` → container `/data/Vault`
+- `VAULT_DIR=/data/Vault`
+- `OLLAMA_URL=http://host.docker.internal:11434/v1`
+- `OLLAMA_MODEL=gemma4:12b-it-qat`
+
+To point at a different local vault path:
+
+```bash
+VAULT_DIR=/absolute/path/to/vault docker compose run --rm --build --service-ports app
+```
+
+To override Ollama settings:
+
+```bash
+VAULT_DIR=/absolute/path/to/vault \
+OLLAMA_URL=http://host.docker.internal:11434/v1 \
+OLLAMA_MODEL=gemma4:12b-it-qat \
+docker compose run --rm --build --service-ports app
+```
+
+You can still use `docker compose up --build` for non-interactive log-first
+workflows, but `run` is usually better for full-screen terminal apps.
+
+If MCP works but chat fails, verify Ollama is reachable from inside the
+container and ensure it is running with `OLLAMA_HOST=0.0.0.0:11434`.
+
+Stop and remove the container:
+
+```bash
+docker compose down
 ```
 
 ### Using the TUI

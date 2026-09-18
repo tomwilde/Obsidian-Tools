@@ -34,6 +34,17 @@ def test_determine_root_dir_reads_config(tmp_path):
     assert config.determine_root_dir(ini) == tmp_path
 
 
+def test_determine_root_dir_prefers_vault_dir_environment_variable(tmp_path, monkeypatch):
+    configured = tmp_path / "from-config"
+    configured.mkdir()
+    overridden = tmp_path / "from-env"
+    overridden.mkdir()
+    ini = tmp_path / "config.ini"
+    ini.write_text(f"[Obsidian]\nRootDir = {configured}\n")
+    monkeypatch.setenv("VAULT_DIR", str(overridden))
+    assert config.determine_root_dir(ini) == overridden
+
+
 def test_load_config_missing_file_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         config.load_config(tmp_path / "missing.ini")
