@@ -47,11 +47,21 @@ def test_list_folders_lists_directories(tmp_path, monkeypatch):
     (tmp_path / "nested" / "inner").mkdir()
     monkeypatch.setattr(common, "rootdir", tmp_path)
     assert asyncio.run(list_folders("")) == ["alpha", "beta", "nested"]
+    assert asyncio.run(list_folders("/")) == ["alpha", "beta", "nested"]
     assert asyncio.run(list_folders("nested")) == ["inner"]
+    assert asyncio.run(list_folders("/nested")) == ["inner"]
 
 
 @pytest.mark.parametrize("path", [".", ".."])
 def test_list_folders_forbids_dot_paths(path, tmp_path, monkeypatch):
+    monkeypatch.setattr(common, "rootdir", tmp_path)
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(list_folders(path))
+    assert "403" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("path", ["../", "../etc", "/../etc", "/../../"])
+def test_list_folders_forbids_parent_traversal(path, tmp_path, monkeypatch):
     monkeypatch.setattr(common, "rootdir", tmp_path)
     with pytest.raises(ToolError) as exc_info:
         asyncio.run(list_folders(path))
@@ -80,11 +90,21 @@ def test_list_files_lists_files(tmp_path, monkeypatch):
     (tmp_path / "nested" / "deep.md").write_text("z")
     monkeypatch.setattr(common, "rootdir", tmp_path)
     assert asyncio.run(list_files("")) == ["note.md", "plan.md"]
+    assert asyncio.run(list_files("/")) == ["note.md", "plan.md"]
     assert asyncio.run(list_files("nested")) == ["deep.md"]
+    assert asyncio.run(list_files("/nested")) == ["deep.md"]
 
 
 @pytest.mark.parametrize("path", [".", ".."])
 def test_list_files_forbids_dot_paths(path, tmp_path, monkeypatch):
+    monkeypatch.setattr(common, "rootdir", tmp_path)
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(list_files(path))
+    assert "403" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("path", ["../", "../etc", "/../etc", "/../../"])
+def test_list_files_forbids_parent_traversal(path, tmp_path, monkeypatch):
     monkeypatch.setattr(common, "rootdir", tmp_path)
     with pytest.raises(ToolError) as exc_info:
         asyncio.run(list_files(path))
@@ -121,10 +141,19 @@ def test_read_file_returns_contents(tmp_path, monkeypatch):
     (tmp_path / "nested" / "note.md").write_text("hello world")
     monkeypatch.setattr(common, "rootdir", tmp_path)
     assert asyncio.run(read_file("nested/note.md")) == "hello world"
+    assert asyncio.run(read_file("/nested/note.md")) == "hello world"
 
 
 @pytest.mark.parametrize("path", [".", ".."])
 def test_read_file_forbids_dot_paths(path, tmp_path, monkeypatch):
+    monkeypatch.setattr(common, "rootdir", tmp_path)
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(read_file(path))
+    assert "403" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("path", ["../", "../etc/passwd", "/../etc/passwd", "/../../secret.md"])
+def test_read_file_forbids_parent_traversal(path, tmp_path, monkeypatch):
     monkeypatch.setattr(common, "rootdir", tmp_path)
     with pytest.raises(ToolError) as exc_info:
         asyncio.run(read_file(path))

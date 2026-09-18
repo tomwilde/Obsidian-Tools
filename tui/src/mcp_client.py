@@ -35,12 +35,28 @@ class McpClient:
         return self
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        close_error: Exception | None = None
+
         if self._session is not None:
-            await self._session.__aexit__(exc_type, exc, tb)
-            self._session = None
+            try:
+                await self._session.__aexit__(exc_type, exc, tb)
+            except Exception as err:
+                if "Session termination failed: 404" not in str(err):
+                    close_error = err
+            finally:
+                self._session = None
+
         if self._transport is not None:
-            await self._transport.__aexit__(exc_type, exc, tb)
-            self._transport = None
+            try:
+                await self._transport.__aexit__(exc_type, exc, tb)
+            except Exception as err:
+                if close_error is None:
+                    close_error = err
+            finally:
+                self._transport = None
+
+        if close_error is not None:
+            raise close_error
 
     async def list_tools(self) -> list[ToolInfo]:
         if self._session is None:

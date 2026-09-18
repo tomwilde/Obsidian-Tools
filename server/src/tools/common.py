@@ -12,6 +12,27 @@ rootdir: Path = determine_root_dir()
 T = TypeVar("T")
 
 
+def resolve_vault_path(root: Path, relative: str) -> Path:
+    """Resolve a user path to a concrete path within the vault root.
+
+    Leading slashes are treated as vault-root anchors (not filesystem root).
+    Dot-paths and traversal escapes are forbidden.
+    """
+    if relative in (".", ".."):
+        raise ToolError("403 Forbidden")
+
+    canonical_root = root.resolve()
+    rel = (relative or "").replace("\\", "/").strip().lstrip("/")
+    target = (canonical_root / rel).resolve()
+
+    try:
+        target.relative_to(canonical_root)
+    except ValueError:
+        raise ToolError("403 Forbidden") from None
+
+    return target
+
+
 def normalize_vault_relative(relative: str) -> str:
     """Map a vault path into a clean, forward-slash, root-anchored relative
     path that is guaranteed to stay inside the vault.
@@ -27,14 +48,8 @@ def normalize_vault_relative(relative: str) -> str:
     literal dot-paths '.' and '..' are forbidden, and any traversal or drive
     escape ('../x', '..\\..\\x', absolute drive paths) raises 403.
     """
-    if relative in (".", ".."):
-        raise ToolError("403 Forbidden")
-    rel = relative.replace("\\", "/").strip().lstrip("/")
-    target = (rootdir / rel).resolve()
-    try:
-        inside = target.relative_to(rootdir)
-    except ValueError:
-        raise ToolError("403 Forbidden") from None
+    target = resolve_vault_path(rootdir, relative)
+    inside = target.relative_to(rootdir.resolve())
     return "" if inside == Path(".") else inside.as_posix()
 
 

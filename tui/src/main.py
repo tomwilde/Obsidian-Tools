@@ -8,14 +8,15 @@ Run from this directory with:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 from typing import Any
 
 from textual import on
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical
-from textual.widgets import Button, Footer, Header, Input, Label, ListItem, ListView, Markdown, Static
+from textual.containers import Horizontal, ScrollableContainer, Vertical
+from textual.widgets import Button, Footer, Header, Input, Label, ListItem, ListView, Markdown, Static, TextArea
 
 from chat import MAX_TOOL_ROUNDS, SYSTEM_PROMPT, build_default_arguments, parse_arguments, to_openai_tools
 from mcp_client import McpClient, ToolInfo
@@ -55,27 +56,38 @@ class ObsidianTui(App):
         margin-bottom: 1;
     }
 
-    #tool-desc {
+    #tool-desc-scroll {
         height: 8;
         border: solid $panel;
-        padding: 0 1;
         margin-bottom: 1;
         overflow-y: auto;
     }
 
+    #tool-desc {
+        width: 100%;
+        padding: 0 1;
+    }
+
     #args-input {
+        height: 12;
+        border: solid $accent;
+        padding: 0 1;
         margin-bottom: 1;
+        overflow-y: auto;
     }
 
     #call-btn {
         margin-bottom: 1;
     }
 
-    #tool-result {
-        border: solid $panel;
-        padding: 0 1;
+    #tool-result-scroll {
         height: 1fr;
-        overflow-y: auto;
+        border: solid $panel;
+    }
+
+    #tool-result {
+        width: 100%;
+        padding: 0 1;
     }
 
     #chat-pane {
@@ -101,6 +113,8 @@ class ObsidianTui(App):
         self.model = model
         self.mcp: McpClient | None = None
         self.tools: list[ToolInfo] = []
+        self._mcp_task: asyncio.Task[None] | None = None
+        self._mcp_close_event = asyncio.Event()
         self._selected_tool: ToolInfo | None = None
         self._chat_worker: Any = None
         self._history: list[dict[str, Any]] = []
@@ -117,18 +131,29 @@ class ObsidianTui(App):
                     ListItem(Label("Connecting to MCP server…")),
                     id="tool-list",
                 )
-                yield Static("Select a tool above.", id="tool-desc")
-                yield Input(placeholder='{}  (JSON arguments)', id="args-input")
+                with ScrollableContainer(id="tool-desc-scroll"):
+                    yield Static("Select a tool above.", id="tool-desc")
+                yield TextArea("{}", id="args-input", language="json")
                 yield Button("Call tool", id="call-btn", variant="primary")
-                yield Static("", id="tool-result")
+                with ScrollableContainer(id="tool-result-scroll"):
+                    yield Static("", id="tool-result")
             with Vertical(id="chat-pane"):
                 yield Markdown("Ask about your vault below. The assistant can call MCP tools.", id="chat")
                 yield Input(placeholder="Ask about your vault…", id="chat-input")
         yield Footer()
 
     def on_mount(self) -> None:
-        self.run_worker(self._connect(), group="mcp", exclusive=True, thread=False)
+        self._mcp_task = asyncio.create_task(self._connect())
         self.query_one("#chat-input", Input).focus()
+
+    async def on_unmount(self) -> None:
+        self._mcp_close_event.set()
+        if self._mcp_task is None:
+            return
+        try:
+            await self._mcp_task
+        except asyncio.CancelledError:
+            pass
 
     # ------------------------------------------------------------------ mcp
 
@@ -138,23 +163,34 @@ class ObsidianTui(App):
     async def _connect(self) -> None:
         self._set_status(f"Connecting to {self.mcp_url}…")
         client = McpClient(self.mcp_url)
+        connected = False
+
         try:
-            await client.__aenter__()
+            async with client:
+                connected = True
+                self.mcp = client
+                try:
+                    self.tools = await self.mcp.list_tools()
+                except Exception as exc:
+                    self._set_status(f"Failed to list tools: {exc}")
+                    return
+
+                items = [ListItem(Label(tool["name"])) for tool in self.tools]
+                for item, tool in zip(items, self.tools):
+                    item.tool_info = tool
+                await self._replace_tool_list(items)
+                self._set_status(f"Connected · {len(self.tools)} tool(s)")
+
+                await self._mcp_close_event.wait()
         except Exception as exc:
-            self._set_status(f"MCP connection failed: {exc}")
-            await self._replace_tool_list([ListItem(Label(f"Connection failed: {exc}"))])
-            return
-        self.mcp = client
-        try:
-            self.tools = await self.mcp.list_tools()
-        except Exception as exc:
-            self._set_status(f"Failed to list tools: {exc}")
-            return
-        items = [ListItem(Label(tool["name"])) for tool in self.tools]
-        for item, tool in zip(items, self.tools):
-            item.tool_info = tool
-        await self._replace_tool_list(items)
-        self._set_status(f"Connected · {len(self.tools)} tool(s)")
+            if not connected:
+                self._set_status(f"MCP connection failed: {exc}")
+                await self._replace_tool_list([ListItem(Label(f"Connection failed: {exc}"))])
+                return
+            if not self._mcp_close_event.is_set():
+                self._set_status(f"MCP session closed with error: {exc}")
+        finally:
+            self.mcp = None
 
     async def _replace_tool_list(self, items: list[ListItem]) -> None:
         tool_list = self.query_one("#tool-list", ListView)
@@ -172,17 +208,13 @@ class ObsidianTui(App):
         schema = json.dumps(tool["input_schema"], indent=2)
         desc = f"**{tool['name']}**\n{tool['description'] or '(no description)'}\n\n```json\n{schema}\n```"
         self.query_one("#tool-desc", Static).update(desc)
-        self.query_one("#args-input", Input).value = json.dumps(
+        self.query_one("#args-input", TextArea).text = json.dumps(
             build_default_arguments(tool.get("input_schema")), indent=2
         )
-        self.query_one("#tool-result", Static).update("Select arguments and press Enter.")
+        self.query_one("#tool-result", Static).update("Set JSON arguments below, then **Call tool**.")
 
     @on(Button.Pressed, "#call-btn")
     def _on_call_button(self) -> None:
-        self._call_selected_tool()
-
-    @on(Input.Submitted, "#args-input")
-    def _on_args_submitted(self) -> None:
         self._call_selected_tool()
 
     def _call_selected_tool(self) -> None:
@@ -192,7 +224,7 @@ class ObsidianTui(App):
         if self.mcp is None:
             self.query_one("#tool-result", Static).update("MCP server not connected.")
             return
-        raw = self.query_one("#args-input", Input).value or "{}"
+        raw = self.query_one("#args-input", TextArea).text or "{}"
         try:
             arguments = parse_arguments(raw)
         except ValueError as exc:
@@ -253,6 +285,7 @@ class ObsidianTui(App):
         chat_input.disabled = True
         self._history.append({"role": "user", "content": prompt})
         self._blocks.append(f"**You**\n\n{prompt}")
+        await self._render_chat()
 
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": SYSTEM_PROMPT}
@@ -300,9 +333,11 @@ class ObsidianTui(App):
                         arguments = parse_arguments(raw_arguments)
                     except ValueError:
                         arguments = {}
-                    outcome = await self.mcp.call_tool(name, arguments)
                     self._blocks.append(f"**Tool: {name}**")
                     self._blocks.append(f"```json\n{raw_arguments}\n```")
+                    self._stream = ""
+                    await self._render_chat()
+                    outcome = await self.mcp.call_tool(name, arguments)
                     self._blocks.append(outcome["text"] or "(no text result)")
                     self._stream = ""
                     await self._render_chat()
