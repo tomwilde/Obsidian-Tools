@@ -6,6 +6,7 @@ from pathlib import PurePosixPath
 
 CONFIG_FILE = Path(__file__).resolve().parent / "config.ini"
 VAULT_DIR_ENV = "VAULT_DIR"
+EXCLUDED_DIRS_ENV = "EXCLUDED_DIRS"
 EXCLUDED_DIRS_OPTION = "ExcludedDirs"
 
 
@@ -24,6 +25,9 @@ def determine_root_dir(config_file: Path = CONFIG_FILE) -> Path:
 
 
 def determine_excluded_dirs(config_file: Path = CONFIG_FILE) -> tuple[Path, ...]:
+    env_excluded_dirs = os.environ.get(EXCLUDED_DIRS_ENV)
+    if env_excluded_dirs is not None:
+        return _parse_excluded_dirs(env_excluded_dirs)
     parser = load_config(config_file)
     raw = parser["Obsidian"].get(EXCLUDED_DIRS_OPTION, "")
     return _parse_excluded_dirs(raw)

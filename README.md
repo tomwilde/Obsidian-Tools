@@ -7,10 +7,10 @@ folders, RAG queries), and a [Textual](https://textualize.io) terminal chat
 all running locally, no cloud APIs.
 
 ```
-┌──────────────┐   MCP Streamable HTTP   ┌──────────────────┐
+┌───────────────┐   MCP Streamable HTTP   ┌──────────────────┐
 │  TUI (Textual)│ ──────────────────────▶ │  MCP Server      │
 │  chat + tools │                         │  (vault tools)   │
-└──────┬───────┘                         └──────────────────┘
+└──────┬────────┘                         └──────────────────┘
        │  OpenAI-style streaming (tool calling)
        ▼
   ┌──────────────┐
@@ -48,11 +48,14 @@ before running, or use the flags/CLI below.
 | Variable      | Server | TUI                      | Default                                |
 |---------------|--------|--------------------------|----------------------------------------|
 | `VAULT_DIR`   | vault  | —                        | `RootDir` from `server/src/config.ini` |
+| `EXCLUDED_DIRS` | excluded folders | —            | `ExcludedDirs` from `server/src/config.ini` |
 | `MCP_URL`     | —      | MCP server URL           | `http://localhost:8000/mcp`            |
 | `OLLAMA_URL`  | —      | Ollama OpenAI endpoint   | `http://localhost:11434/v1`            |
 | `OLLAMA_MODEL`| —      | model name               | `gemma4:12b-it-qat`                    |
 
-If `VAULT_DIR` is set, it overrides `RootDir` from `config.ini`.
+If `VAULT_DIR` is set, it overrides `RootDir` from `config.ini`. If
+`EXCLUDED_DIRS` is set (including an empty value), it overrides
+`ExcludedDirs` from `config.ini`.
 
 To hide folders from both MCP tools and RAG indexing, set `ExcludedDirs` in
 `server/src/config.ini` (comma- or newline-separated, vault-relative paths):
@@ -138,6 +141,19 @@ OLLAMA_HOST=0.0.0.0:11434 ollama serve
 
 ### Docker Compose (recommended)
 
+Compose reads root `.env` automatically. A starter `.env` is included; edit it
+before first run:
+
+```bash
+cp .env.example .env  # optional if .env already exists
+```
+
+Set at least:
+
+- `HOST_VAULT_DIR` to your local vault path
+- `EXCLUDED_DIRS` if you want to hide folders from tools/RAG
+- `OLLAMA_URL` / `OLLAMA_MODEL` to match your host Ollama setup
+
 For the best interactive TUI sizing, use `run`:
 
 ```bash
@@ -146,21 +162,23 @@ docker compose run --rm --build --service-ports app
 
 Defaults used by compose:
 
-- local `./Vault` → container `/data/Vault`
-- `VAULT_DIR=/data/Vault`
+- `${HOST_VAULT_DIR}` mounted at `${CONTAINER_VAULT_DIR}`
+- `VAULT_DIR=${CONTAINER_VAULT_DIR}`
+- `EXCLUDED_DIRS=`
 - `OLLAMA_URL=http://host.docker.internal:11434/v1`
 - `OLLAMA_MODEL=gemma4:12b-it-qat`
 
 To point at a different local vault path:
 
 ```bash
-VAULT_DIR=/absolute/path/to/vault docker compose run --rm --build --service-ports app
+HOST_VAULT_DIR=/absolute/path/to/vault docker compose run --rm --build --service-ports app
 ```
 
-To override Ollama settings:
+To override vault exclusions and Ollama settings:
 
 ```bash
-VAULT_DIR=/absolute/path/to/vault \
+HOST_VAULT_DIR=/absolute/path/to/vault \
+EXCLUDED_DIRS=.obsidian,Templates/private \
 OLLAMA_URL=http://host.docker.internal:11434/v1 \
 OLLAMA_MODEL=gemma4:12b-it-qat \
 docker compose run --rm --build --service-ports app

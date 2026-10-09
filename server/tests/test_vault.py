@@ -59,6 +59,20 @@ def test_determine_excluded_dirs_supports_newline_values(tmp_path):
     assert config.determine_excluded_dirs(ini) == (Path("one"), Path("two/sub"))
 
 
+def test_determine_excluded_dirs_prefers_environment_variable(tmp_path, monkeypatch):
+    ini = tmp_path / "config.ini"
+    ini.write_text("[Obsidian]\nRootDir = /tmp\nExcludedDirs = ignored/in/config\n")
+    monkeypatch.setenv("EXCLUDED_DIRS", ".obsidian,private")
+    assert config.determine_excluded_dirs(ini) == (Path(".obsidian"), Path("private"))
+
+
+def test_determine_excluded_dirs_environment_variable_can_clear(tmp_path, monkeypatch):
+    ini = tmp_path / "config.ini"
+    ini.write_text("[Obsidian]\nRootDir = /tmp\nExcludedDirs = private\n")
+    monkeypatch.setenv("EXCLUDED_DIRS", "")
+    assert config.determine_excluded_dirs(ini) == ()
+
+
 def test_determine_excluded_dirs_rejects_parent_traversal(tmp_path):
     ini = tmp_path / "config.ini"
     ini.write_text("[Obsidian]\nRootDir = /tmp\nExcludedDirs = ../secret\n")

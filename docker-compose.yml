@@ -9,8 +9,9 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - "${VAULT_DIR:-./Vault}:/data/Vault"
+      - "${HOST_VAULT_DIR:-./Vault}:${CONTAINER_VAULT_DIR:-/data/Vault}"
     environment:
-      VAULT_DIR: /data/Vault
+      VAULT_DIR: "${CONTAINER_VAULT_DIR:-/data/Vault}"
+      EXCLUDED_DIRS: "${EXCLUDED_DIRS:-}"
       OLLAMA_URL: "${OLLAMA_URL:-http://host.docker.internal:11434/v1}"
       OLLAMA_MODEL: "${OLLAMA_MODEL:-gemma4:12b-it-qat}"
