@@ -1,14 +1,19 @@
 import hashlib
 import logging
+import os
 import re
 import threading
+from concurrent.futures import Future
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed
+from collections.abc import Mapping
 from pathlib import Path
 
 import chromadb
 import numpy as np
 from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 
-from config import determine_excluded_dirs, determine_root_dir
+from config import determine_excluded_dirs, determine_included_filetypes, determine_root_dir
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +27,8 @@ MAX_CHUNK_CHARS = 1500
 MAX_SENTENCE_CHARS = 2000
 BREAKPOINT_PERCENTILE = 50.0
 EMBED_BATCH_SIZE = 256
+RAG_CHUNKING_MODE_ENV = "RAG_CHUNKING_MODE"
+RAG_INDEX_WORKERS_ENV = "RAG_INDEX_WORKERS"
 
 
 class Indexer:
@@ -31,17 +38,59 @@ class Indexer:
         index_dir: Path = INDEX_DIR,
         embedding_function: object | None = None,
         excluded_dirs: tuple[Path, ...] | None = None,
+        included_filetypes: tuple[str, ...] | None = None,
+        semantic_chunking: bool | None = None,
+        index_workers: int | None = None,
     ) -> None:
         self.rootdir = rootdir
         self.index_dir = index_dir
         self.embedding_function = embedding_function
         self.excluded_dirs = excluded_dirs if excluded_dirs is not None else determine_excluded_dirs()
+        self.included_filetypes = (
+            {filetype.lower().lstrip(".") for filetype in included_filetypes}
+            if included_filetypes is not None
+            else set(determine_included_filetypes())
+        )
+        if semantic_chunking is None:
+            mode = os.environ.get(RAG_CHUNKING_MODE_ENV, "semantic").strip().lower()
+            self.semantic_chunking = mode != "structural"
+        else:
+            self.semantic_chunking = semantic_chunking
+        if index_workers is None:
+            env_workers = os.environ.get(RAG_INDEX_WORKERS_ENV, "1").strip()
+            try:
+                parsed_workers = int(env_workers)
+            except ValueError:
+                parsed_workers = 1
+            self.index_workers = max(1, parsed_workers)
+        else:
+            self.index_workers = max(1, index_workers)
         self._client: chromadb.ClientAPI | None = None
         self._ready = threading.Event()
+        self._last_error: str | None = None
 
     @property
     def ready(self) -> bool:
         return self._ready.is_set()
+
+    @property
+    def last_error(self) -> str | None:
+        return self._last_error
+
+    @property
+    def status(self) -> Mapping[str, str | bool | None]:
+        return {
+            "ready": self.ready,
+            "last_error": self.last_error,
+            "rootdir": str(self.rootdir),
+            "index_dir": str(self.index_dir),
+            "included_filetypes": ",".join(sorted(self.included_filetypes)),
+            "chunking_mode": "semantic" if self.semantic_chunking else "structural",
+            "index_workers": self.index_workers,
+        }
+
+    def set_error(self, exc: Exception) -> None:
+        self._last_error = f"{type(exc).__name__}: {exc}"
 
     @property
     def client(self) -> chromadb.ClientAPI:
@@ -60,8 +109,10 @@ class Indexer:
 
     def _documents(self) -> list[tuple[str, str, str]]:
         documents: list[tuple[str, str, str]] = []
-        for path in sorted(self.rootdir.rglob("*.md")):
+        for path in sorted(self.rootdir.rglob("*")):
             if not path.is_file():
+                continue
+            if path.suffix.lower().lstrip(".") not in self.included_filetypes:
                 continue
             if self._is_excluded(path):
                 continue
@@ -97,51 +148,159 @@ class Indexer:
         return indexed
 
     def build(self) -> int:
+        self._last_error = None
         collection = self._collection()
         indexed = self._indexed_chunks(collection)
         documents = self._documents()
+        total_files = len(documents)
         current_files = {doc_id for doc_id, _, _ in documents}
+
+        logger.info(
+            "Starting RAG index build for %d file(s) from %s",
+            total_files,
+            self.rootdir,
+        )
 
         removed_files = sorted(set(indexed) - current_files)
         if removed_files:
             collection.delete(where={"file": {"$in": removed_files}})
+        logger.info("RAG index build removed %d stale file(s)", len(removed_files))
 
         indexed_files = 0
         unchanged_files = 0
-        for doc_id, text, file_sha in documents:
-            existing = indexed.get(doc_id)
-            if existing and existing[0][2] == file_sha:
-                unchanged_files += 1
-                continue
-            chunks = self._chunks(text)
-            if existing:
-                collection.delete(where={"file": doc_id})
-            if chunks:
-                collection.upsert(
-                    ids=[f"{doc_id}::{i}" for i in range(len(chunks))],
-                    documents=chunks,
-                    metadatas=[
-                        {
-                            "file": doc_id,
-                            "sha": self._sha(chunk),
-                            "file_sha": file_sha,
-                            "chunk": i,
-                        }
-                        for i, chunk in enumerate(chunks)
-                    ],
+        processed_files = 0
+        next_percent_milestone = 10
+        if self.index_workers > 1 and not self.semantic_chunking:
+            logger.info("RAG index multithreading enabled with %d workers", self.index_workers)
+            futures: dict[Future[tuple[str, str, list[str], bool]], tuple[str, str, bool]] = {}
+            with ThreadPoolExecutor(max_workers=self.index_workers) as executor:
+                for doc_id, text, file_sha in documents:
+                    existing = indexed.get(doc_id)
+                    if existing and existing[0][2] == file_sha:
+                        unchanged_files += 1
+                        processed_files += 1
+                        next_percent_milestone = self._log_progress_milestones(
+                            processed_files,
+                            total_files,
+                            indexed_files,
+                            unchanged_files,
+                            next_percent_milestone,
+                        )
+                        continue
+                    had_existing = existing is not None
+                    future = executor.submit(self._prepare_chunks_for_document, doc_id, text, file_sha, had_existing)
+                    futures[future] = (doc_id, file_sha, had_existing)
+
+                for future in as_completed(futures):
+                    doc_id_result, file_sha_result, chunks, had_existing_result = future.result()
+                    if had_existing_result:
+                        collection.delete(where={"file": doc_id_result})
+                    if chunks:
+                        collection.upsert(
+                            ids=[f"{doc_id_result}::{i}" for i in range(len(chunks))],
+                            documents=chunks,
+                            metadatas=[
+                                {
+                                    "file": doc_id_result,
+                                    "sha": self._sha(chunk),
+                                    "file_sha": file_sha_result,
+                                    "chunk": i,
+                                }
+                                for i, chunk in enumerate(chunks)
+                            ],
+                        )
+                    indexed_files += 1
+                    processed_files += 1
+                    next_percent_milestone = self._log_progress_milestones(
+                        processed_files,
+                        total_files,
+                        indexed_files,
+                        unchanged_files,
+                        next_percent_milestone,
+                    )
+        else:
+            if self.index_workers > 1 and self.semantic_chunking:
+                logger.info(
+                    "RAG_INDEX_WORKERS=%d ignored in semantic mode; running single-threaded",
+                    self.index_workers,
                 )
-            indexed_files += 1
+            for doc_id, text, file_sha in documents:
+                existing = indexed.get(doc_id)
+                if existing and existing[0][2] == file_sha:
+                    unchanged_files += 1
+                else:
+                    chunks = self._chunks(text)
+                    if existing:
+                        collection.delete(where={"file": doc_id})
+                    if chunks:
+                        collection.upsert(
+                            ids=[f"{doc_id}::{i}" for i in range(len(chunks))],
+                            documents=chunks,
+                            metadatas=[
+                                {
+                                    "file": doc_id,
+                                    "sha": self._sha(chunk),
+                                    "file_sha": file_sha,
+                                    "chunk": i,
+                                }
+                                for i, chunk in enumerate(chunks)
+                            ],
+                        )
+                    indexed_files += 1
+                processed_files += 1
+                next_percent_milestone = self._log_progress_milestones(
+                    processed_files,
+                    total_files,
+                    indexed_files,
+                    unchanged_files,
+                    next_percent_milestone,
+                )
 
         self._ready.set()
         logger.info(
-            "Indexed %d file(s) from %s (%d unchanged)",
+            "Completed RAG index build: %d total, %d indexed/updated, %d unchanged (%s)",
+            total_files,
             indexed_files,
-            self.rootdir,
             unchanged_files,
+            self.rootdir,
         )
         return indexed_files
 
+    def _prepare_chunks_for_document(
+        self,
+        doc_id: str,
+        text: str,
+        file_sha: str,
+        had_existing: bool,
+    ) -> tuple[str, str, list[str], bool]:
+        return (doc_id, file_sha, self._chunks(text), had_existing)
+
+    @staticmethod
+    def _log_progress_milestones(
+        processed_files: int,
+        total_files: int,
+        indexed_files: int,
+        unchanged_files: int,
+        next_percent_milestone: int,
+    ) -> int:
+        if total_files <= 0:
+            return next_percent_milestone
+        processed_percent = (processed_files / total_files) * 100.0
+        while next_percent_milestone <= 100 and processed_percent >= next_percent_milestone:
+            logger.info(
+                "RAG index progress: %d/%d (%d%%) processed, %d indexed/updated, %d unchanged",
+                processed_files,
+                total_files,
+                next_percent_milestone,
+                indexed_files,
+                unchanged_files,
+            )
+            next_percent_milestone += 10
+        return next_percent_milestone
+
     def flush(self) -> None:
+        self._ready.clear()
+        self._last_error = None
         names = {collection.name for collection in self.client.list_collections()}
         if COLLECTION_NAME in names:
             self.client.delete_collection(COLLECTION_NAME)
@@ -188,6 +347,8 @@ class Indexer:
         sentences = self._split_sentences(text)
         if not sentences:
             return []
+        if not self.semantic_chunking:
+            return self._fallback_chunks(sentences)
         try:
             embeddings = []
             embedding_function = self._sentence_embedding_function()

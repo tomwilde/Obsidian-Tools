@@ -1,0 +1,28 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "UV sync all packages",
+      "type": "shell",
+      "command": "uv",
+      "args": [
+        "sync",
+        "--all-packages"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Wait for MCP server health",
+      "type": "shell",
+      "command": "/bin/bash",
+      "args": [
+        "-lc",
+        "for i in $(seq 1 120); do curl -fsS http://127.0.0.1:8000/health >/dev/null && exit 0; sleep 0.5; done; echo 'Timed out waiting for MCP server health endpoint' >&2; exit 1"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

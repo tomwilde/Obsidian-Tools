@@ -49,13 +49,20 @@ before running, or use the flags/CLI below.
 |---------------|--------|--------------------------|----------------------------------------|
 | `VAULT_DIR`   | vault  | —                        | `RootDir` from `server/src/config.ini` |
 | `EXCLUDED_DIRS` | excluded folders | —            | `ExcludedDirs` from `server/src/config.ini` |
+| `INCLUDED_FILETYPES` | indexed file types | —     | `md`                                   |
+| `RAG_CHUNKING_MODE` | chunking strategy | —        | `semantic` (`structural` is faster)    |
+| `RAG_INDEX_WORKERS` | index build workers | —       | `1` (used in `structural` mode)        |
 | `MCP_URL`     | —      | MCP server URL           | `http://localhost:8000/mcp`            |
 | `OLLAMA_URL`  | —      | Ollama OpenAI endpoint   | `http://localhost:11434/v1`            |
 | `OLLAMA_MODEL`| —      | model name               | `gemma4:12b-it-qat`                    |
 
 If `VAULT_DIR` is set, it overrides `RootDir` from `config.ini`. If
 `EXCLUDED_DIRS` is set (including an empty value), it overrides
-`ExcludedDirs` from `config.ini`.
+`ExcludedDirs` from `config.ini`. `INCLUDED_FILETYPES` controls which
+extensions are indexed by RAG (comma- or newline-separated, e.g.
+`md,txt,html`). `RAG_CHUNKING_MODE=structural` skips embedding-based semantic
+chunking and is significantly faster for large vaults. `RAG_INDEX_WORKERS`
+enables multithreaded indexing in `structural` mode.
 
 To hide folders from both MCP tools and RAG indexing, set `ExcludedDirs` in
 `server/src/config.ini` (comma- or newline-separated, vault-relative paths):
@@ -83,8 +90,14 @@ The server mounts the MCP Streamable HTTP endpoint at **`/mcp`** and serves a
 health check at `/health`. Verify:
 
 ```bash
-curl http://localhost:8000/health        # -> {"status":"healthy"}
+curl http://localhost:8000/health
 ```
+
+`/health` includes RAG readiness details under `rag`, including:
+
+- `rag.ready` (`true` when `rag_query` can run)
+- `rag.last_error` (startup index error, if any)
+- `rag.rootdir` (vault path seen by the server)
 
 ## Run the TUI
 
@@ -150,42 +163,103 @@ cp .env.example .env  # optional if .env already exists
 
 Set at least:
 
-- `HOST_VAULT_DIR` to your local vault path
+- `VAULT_DIR` to your local vault path
 - `EXCLUDED_DIRS` if you want to hide folders from tools/RAG
+- `INCLUDED_FILETYPES` to broaden/narrow indexed file extensions
+- `RAG_CHUNKING_MODE` (`structural` for speed, `semantic` for best chunk quality)
+- `RAG_INDEX_WORKERS` (e.g. `4` for faster structural indexing)
 - `OLLAMA_URL` / `OLLAMA_MODEL` to match your host Ollama setup
 
-For the best interactive TUI sizing, use `run`:
+Compose now runs as two services:
+
+- `server` (FastAPI MCP service, detached/loggable)
+- `tui` (interactive Textual client)
+
+Start the MCP server in background:
 
 ```bash
-docker compose run --rm --build --service-ports app
+docker compose up -d --build server
+```
+
+Run the TUI in a dedicated interactive terminal:
+
+```bash
+docker compose run --rm --build tui
 ```
 
 Defaults used by compose:
 
-- `${HOST_VAULT_DIR}` mounted at `${CONTAINER_VAULT_DIR}`
-- `VAULT_DIR=${CONTAINER_VAULT_DIR}`
+- `${VAULT_DIR}` mounted at `/data/Vault`
+- in-container `VAULT_DIR=/data/Vault`
 - `EXCLUDED_DIRS=`
+- `INCLUDED_FILETYPES=md`
+- `RAG_CHUNKING_MODE=structural`
+- `RAG_INDEX_WORKERS=4`
+- `MCP_URL=http://server:8000/mcp`
 - `OLLAMA_URL=http://host.docker.internal:11434/v1`
 - `OLLAMA_MODEL=gemma4:12b-it-qat`
 
 To point at a different local vault path:
 
 ```bash
-HOST_VAULT_DIR=/absolute/path/to/vault docker compose run --rm --build --service-ports app
+VAULT_DIR=/absolute/path/to/vault docker compose up -d --build server
+VAULT_DIR=/absolute/path/to/vault docker compose run --rm --build tui
 ```
 
 To override vault exclusions and Ollama settings:
 
 ```bash
-HOST_VAULT_DIR=/absolute/path/to/vault \
+VAULT_DIR=/absolute/path/to/vault \
 EXCLUDED_DIRS=.obsidian,Templates/private \
+INCLUDED_FILETYPES=md,txt,html,htm \
+RAG_CHUNKING_MODE=structural \
+RAG_INDEX_WORKERS=4 \
 OLLAMA_URL=http://host.docker.internal:11434/v1 \
 OLLAMA_MODEL=gemma4:12b-it-qat \
-docker compose run --rm --build --service-ports app
+docker compose up -d --build server
+
+VAULT_DIR=/absolute/path/to/vault \
+OLLAMA_URL=http://host.docker.internal:11434/v1 \
+OLLAMA_MODEL=gemma4:12b-it-qat \
+docker compose run --rm --build tui
 ```
 
-You can still use `docker compose up --build` for non-interactive log-first
-workflows, but `run` is usually better for full-screen terminal apps.
+Debug flow (recommended, 3 terminals):
+
+1. **Server up**
+
+```bash
+docker compose up -d --build server
+```
+
+2. **Tail server logs**
+
+```bash
+docker compose logs -f --tail=200 server
+```
+
+3. **Run TUI**
+
+```bash
+docker compose run --rm --build tui
+```
+
+This avoids stdout corruption because server logs and the full-screen TUI are
+no longer sharing the same terminal output.
+
+Makefile shortcuts:
+
+```bash
+make server-up   # start server in background
+make logs        # tail server logs
+make tui         # run interactive TUI
+```
+
+Single-command workflow:
+
+```bash
+make debug       # server-up + interactive TUI
+```
 
 If MCP works but chat fails, verify Ollama is reachable from inside the
 container and ensure it is running with `OLLAMA_HOST=0.0.0.0:11434`.

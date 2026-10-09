@@ -7,7 +7,7 @@ from tools import common
 
 
 @mcp.tool()
-async def list_files(path: str, extension: str | None = None) -> list[str]:
+async def list_files(path: str = "", extension: str | None = None) -> list[str]:
     """List the files at the given path relative to the vault root, optionally filtered by extension."""
     return _list_files(common.rootdir, path, extension)
 

@@ -1,17 +1,45 @@
 services:
-  app:
+  server:
+    build: .
+    image: tw-obsidian-tools:local
+    ports:
+      - "8000:8000"
+    volumes:
+      - "${VAULT_DIR:-./Vault}:/data/Vault"
+    environment:
+      VAULT_DIR: /data/Vault
+      EXCLUDED_DIRS: "${EXCLUDED_DIRS:-}"
+      INCLUDED_FILETYPES: "${INCLUDED_FILETYPES:-md}"
+      RAG_CHUNKING_MODE: "${RAG_CHUNKING_MODE:-structural}"
+      RAG_INDEX_WORKERS: "${RAG_INDEX_WORKERS:-4}"
+    entrypoint:
+      - /bin/bash
+      - -lc
+      - cd /app/server && uv run uvicorn main:app --app-dir src --host 0.0.0.0 --port 8000
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  tui:
     build: .
     image: tw-obsidian-tools:local
     stdin_open: true
     tty: true
-    ports:
-      - "8000:8000"
+    depends_on:
+      server:
+        condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - "${HOST_VAULT_DIR:-./Vault}:${CONTAINER_VAULT_DIR:-/data/Vault}"
+      - "${VAULT_DIR:-./Vault}:/data/Vault"
     environment:
-      VAULT_DIR: "${CONTAINER_VAULT_DIR:-/data/Vault}"
-      EXCLUDED_DIRS: "${EXCLUDED_DIRS:-}"
-      OLLAMA_URL: "${OLLAMA_URL:-http://host.docker.internal:11434/v1}"
-      OLLAMA_MODEL: "${OLLAMA_MODEL:-gemma4:12b-it-qat}"
+      MCP_URL: "http://server:8000/mcp"
+      OLLAMA_URL: "http://host.docker.internal:11434/v1"
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-qwen3.5:4b}"
+    entrypoint:
+      - /bin/bash
+      - -lc
+      - cd /app/tui && uv run python src/main.py --mcp-url "$${MCP_URL}" --ollama-url "$${OLLAMA_URL}" --model "$${OLLAMA_MODEL}"

@@ -7,7 +7,9 @@ from pathlib import PurePosixPath
 CONFIG_FILE = Path(__file__).resolve().parent / "config.ini"
 VAULT_DIR_ENV = "VAULT_DIR"
 EXCLUDED_DIRS_ENV = "EXCLUDED_DIRS"
+INCLUDED_FILETYPES_ENV = "INCLUDED_FILETYPES"
 EXCLUDED_DIRS_OPTION = "ExcludedDirs"
+DEFAULT_INCLUDED_FILETYPES = ("md",)
 
 
 def load_config(config_file: Path = CONFIG_FILE) -> configparser.ConfigParser:
@@ -33,6 +35,13 @@ def determine_excluded_dirs(config_file: Path = CONFIG_FILE) -> tuple[Path, ...]
     return _parse_excluded_dirs(raw)
 
 
+def determine_included_filetypes() -> tuple[str, ...]:
+    raw = os.environ.get(INCLUDED_FILETYPES_ENV)
+    if raw is None or not raw.strip():
+        return DEFAULT_INCLUDED_FILETYPES
+    return _parse_included_filetypes(raw)
+
+
 def _parse_excluded_dirs(raw: str) -> tuple[Path, ...]:
     paths: list[Path] = []
     seen: set[str] = set()
@@ -47,6 +56,22 @@ def _parse_excluded_dirs(raw: str) -> tuple[Path, ...]:
         seen.add(key)
         paths.append(normalized)
     return tuple(paths)
+
+
+def _parse_included_filetypes(raw: str) -> tuple[str, ...]:
+    filetypes: list[str] = []
+    seen: set[str] = set()
+    for token in re.split(r"[\n,]", raw):
+        entry = token.strip().lstrip(".").lower()
+        if not entry:
+            continue
+        if entry in seen:
+            continue
+        seen.add(entry)
+        filetypes.append(entry)
+    if not filetypes:
+        return DEFAULT_INCLUDED_FILETYPES
+    return tuple(filetypes)
 
 
 def _normalize_relative_dir(raw: str) -> Path:

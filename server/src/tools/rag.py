@@ -23,7 +23,11 @@ async def rag_query(query_text: str) -> list[RagMatch]:
 @common.tool_generic_error_handler()
 def _rag_query(query_text: str) -> list[RagMatch]:
     if not indexer.rag_index.ready:
-        raise ToolError("503 Service Unavailable")
+        if indexer.rag_index.last_error:
+            raise ToolError(
+                f"503 Service Unavailable: index build failed ({indexer.rag_index.last_error})"
+            )
+        raise ToolError("503 Service Unavailable: index build in progress")
     return indexer.rag_index.query(query_text)
 
 

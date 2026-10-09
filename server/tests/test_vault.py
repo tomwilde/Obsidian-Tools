@@ -18,6 +18,7 @@ class FakeIndex:
         self.matches = matches or []
         self.flushed = False
         self.built = False
+        self.last_error = None
 
     def query(self, query_text):
         return self.matches
@@ -80,6 +81,21 @@ def test_determine_excluded_dirs_rejects_parent_traversal(tmp_path):
         config.determine_excluded_dirs(ini)
 
 
+def test_determine_included_filetypes_defaults_to_markdown(monkeypatch):
+    monkeypatch.delenv("INCLUDED_FILETYPES", raising=False)
+    assert config.determine_included_filetypes() == ("md",)
+
+
+def test_determine_included_filetypes_parses_environment_variable(monkeypatch):
+    monkeypatch.setenv("INCLUDED_FILETYPES", ".md, txt, HTML,md")
+    assert config.determine_included_filetypes() == ("md", "txt", "html")
+
+
+def test_determine_included_filetypes_empty_environment_variable_uses_default(monkeypatch):
+    monkeypatch.setenv("INCLUDED_FILETYPES", "")
+    assert config.determine_included_filetypes() == ("md",)
+
+
 def test_load_config_missing_file_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         config.load_config(tmp_path / "missing.ini")
@@ -97,6 +113,14 @@ def test_list_folders_lists_directories(tmp_path, monkeypatch):
     assert asyncio.run(list_folders("/")) == ["alpha", "beta", "nested"]
     assert asyncio.run(list_folders("nested")) == ["inner"]
     assert asyncio.run(list_folders("/nested")) == ["inner"]
+
+
+def test_list_folders_defaults_to_root_when_path_omitted(tmp_path, monkeypatch):
+    (tmp_path / "alpha").mkdir()
+    (tmp_path / "beta").mkdir()
+    monkeypatch.setattr(common, "rootdir", tmp_path)
+    monkeypatch.setattr(common, "excluded_dirs", ())
+    assert asyncio.run(list_folders()) == ["alpha", "beta"]
 
 
 @pytest.mark.parametrize("path", [".", ".."])
@@ -156,6 +180,14 @@ def test_list_files_lists_files(tmp_path, monkeypatch):
     assert asyncio.run(list_files("/")) == ["note.md", "plan.md"]
     assert asyncio.run(list_files("nested")) == ["deep.md"]
     assert asyncio.run(list_files("/nested")) == ["deep.md"]
+
+
+def test_list_files_defaults_to_root_when_path_omitted(tmp_path, monkeypatch):
+    (tmp_path / "a.md").write_text("a")
+    (tmp_path / "b.md").write_text("b")
+    monkeypatch.setattr(common, "rootdir", tmp_path)
+    monkeypatch.setattr(common, "excluded_dirs", ())
+    assert asyncio.run(list_files()) == ["a.md", "b.md"]
 
 
 @pytest.mark.parametrize("path", [".", ".."])
@@ -268,6 +300,17 @@ def test_rag_query_returns_503_until_index_ready(monkeypatch):
     with pytest.raises(ToolError) as exc_info:
         asyncio.run(rag_query("what is this vault about?"))
     assert "503" in str(exc_info.value)
+    assert "in progress" in str(exc_info.value)
+
+
+def test_rag_query_returns_503_with_build_error_detail(monkeypatch):
+    fake = FakeIndex(ready=False)
+    fake.last_error = "RuntimeError: test build failure"
+    monkeypatch.setattr(indexer, "rag_index", fake)
+    with pytest.raises(ToolError) as exc_info:
+        asyncio.run(rag_query("what is this vault about?"))
+    assert "build failed" in str(exc_info.value)
+    assert "test build failure" in str(exc_info.value)
 
 
 def test_rag_query_returns_matches_when_ready(monkeypatch):
@@ -375,3 +418,29 @@ def test_documents_skip_excluded_directories(tmp_path):
     imp = indexer.Indexer(tmp_path, excluded_dirs=(Path("private"),))
     documents = imp._documents()
     assert [doc_id for doc_id, _, _ in documents] == ["public/keep.md"]
+
+
+def test_documents_respect_included_filetypes(tmp_path):
+    (tmp_path / "doc.md").write_text("markdown")
+    (tmp_path / "doc.txt").write_text("plaintext")
+    (tmp_path / "doc.html").write_text("<p>html</p>")
+    (tmp_path / "skip.csv").write_text("a,b")
+    imp = indexer.Indexer(tmp_path, included_filetypes=("md", "txt", "html"))
+    documents = imp._documents()
+    assert [doc_id for doc_id, _, _ in documents] == ["doc.html", "doc.md", "doc.txt"]
+
+
+def test_indexer_reads_worker_count_from_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("RAG_INDEX_WORKERS", "4")
+    imp = indexer.Indexer(tmp_path)
+    assert imp.index_workers == 4
+
+
+def test_chunks_skip_semantic_embeddings_in_structural_mode(tmp_path):
+    def broken_embedding(texts):
+        raise RuntimeError("embedding should not run in structural mode")
+
+    imp = indexer.Indexer(tmp_path, embedding_function=broken_embedding, semantic_chunking=False)
+    text = "# Notes\n\nFirst paragraph here.\n\nSecond paragraph continues.\n\n## More\nDetails."
+    chunks = imp._chunks(text)
+    assert len(chunks) > 1

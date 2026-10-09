@@ -95,9 +95,14 @@ class ObsidianTui(App):
         padding: 0 1;
     }
 
-    #chat {
+    #chat-scroll {
         height: 1fr;
         border: solid $panel;
+        overflow-y: auto;
+    }
+
+    #chat {
+        width: 100%;
         padding: 1;
     }
 
@@ -138,7 +143,8 @@ class ObsidianTui(App):
                 with ScrollableContainer(id="tool-result-scroll"):
                     yield Static("", id="tool-result")
             with Vertical(id="chat-pane"):
-                yield Markdown("Ask about your vault below. The assistant can call MCP tools.", id="chat")
+                with ScrollableContainer(id="chat-scroll"):
+                    yield Markdown("Ask about your vault below. The assistant can call MCP tools.", id="chat")
                 yield Input(placeholder="Ask about your vault…", id="chat-input")
         yield Footer()
 
@@ -255,12 +261,13 @@ class ObsidianTui(App):
 
     async def _render_chat(self) -> None:
         markdown = self.query_one("#chat", Markdown)
+        chat_scroll = self.query_one("#chat-scroll", ScrollableContainer)
         parts = list(self._blocks)
         if self._stream:
             parts.append(self._stream)
         text = "\n\n".join(parts)
         await markdown.update(text + "\n")
-        markdown.scroll_end(animate=False)
+        chat_scroll.scroll_end(animate=False)
 
     @on(Input.Submitted, "#chat-input")
     def _on_chat_submitted(self, event: Input.Submitted) -> None:

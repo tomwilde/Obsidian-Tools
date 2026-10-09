@@ -7,7 +7,7 @@ from tools import common
 
 
 @mcp.tool()
-async def list_folders(path: str) -> list[str]:
+async def list_folders(path: str = "") -> list[str]:
     """List the directories at the given path relative to the vault root."""
     return _list_folders(common.rootdir, path)
 

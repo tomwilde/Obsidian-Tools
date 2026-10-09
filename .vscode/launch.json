@@ -1,0 +1,46 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Server: FastAPI (uvicorn)",
+      "type": "python",
+      "request": "launch",
+      "module": "uvicorn",
+      "cwd": "${workspaceFolder}",
+      "args": [
+        "main:app",
+        "--app-dir",
+        "server/src",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8000"
+      ],
+      "preLaunchTask": "UV sync all packages",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "TUI: Textual app",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/tui/src/main.py",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "preLaunchTask": "Wait for MCP server health",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Debug: Server + TUI",
+      "configurations": [
+        "Server: FastAPI (uvicorn)",
+        "TUI: Textual app"
+      ],
+      "stopAll": true
+    }
+  ]
+}

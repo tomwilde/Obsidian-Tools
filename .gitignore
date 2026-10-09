@@ -39,7 +39,9 @@ share/
 hmr_cache/
 
 # IDEs and Editors
-.vscode/
+**/.vscode/*
+!/.vscode/launch.json
+!/.vscode/tasks.json
 .idea/
 *.swp
 *.swo
